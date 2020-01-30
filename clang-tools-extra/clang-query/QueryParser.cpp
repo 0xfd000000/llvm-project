@@ -107,12 +107,13 @@ template <typename QueryType> QueryRef QueryParser::parseSetOutputKind() {
   unsigned OutKind = LexOrCompleteWord<unsigned>(this, ValStr)
                          .Case("diag", OK_Diag)
                          .Case("print", OK_Print)
+                         .Case("json", OK_JSON)
                          .Case("detailed-ast", OK_DetailedAST)
                          .Case("dump", OK_DetailedAST)
                          .Default(~0u);
   if (OutKind == ~0u) {
     return new InvalidQuery(
-        "expected 'diag', 'print', 'detailed-ast' or 'dump', got '" + ValStr +
+        "expected 'diag', 'print', 'json', 'detailed-ast' or 'dump', got '" + ValStr +
         "'");
   }
 
@@ -123,6 +124,8 @@ template <typename QueryType> QueryRef QueryParser::parseSetOutputKind() {
     return new QueryType(&QuerySession::DiagOutput);
   case OK_Print:
     return new QueryType(&QuerySession::PrintOutput);
+  case OK_JSON:
+    return new QueryType(&QuerySession::JSONOutput);
   }
 
   llvm_unreachable("Invalid output kind");

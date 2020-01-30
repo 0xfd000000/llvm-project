@@ -9,10 +9,12 @@
 #include "Query.h"
 #include "QuerySession.h"
 #include "clang/AST/ASTDumper.h"
+#include "clang/AST/JSONNodeDumper.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/Frontend/ASTUnit.h"
 #include "clang/Frontend/TextDiagnostic.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/JSON.h"
 
 using namespace clang::ast_matchers;
 using namespace clang::ast_matchers::dynamic;
@@ -83,6 +85,10 @@ struct CollectBoundNodes : MatchFinder::MatchCallback {
 
 bool MatchQuery::run(llvm::raw_ostream &OS, QuerySession &QS) const {
   unsigned MatchCount = 0;
+  std::string S_json;
+  llvm::raw_string_ostream OS_json(S_json);
+  llvm::json::OStream J(OS_json, 2);
+  if (QS.JSONOutput) J.arrayBegin();
 
   for (auto &AST : QS.ASTs) {
     MatchFinder Finder;
@@ -122,11 +128,20 @@ bool MatchQuery::run(llvm::raw_ostream &OS, QuerySession &QS) const {
     }
 
     for (auto MI = Matches.begin(), ME = Matches.end(); MI != ME; ++MI) {
-      OS << "\nMatch #" << ++MatchCount << ":\n\n";
+      if (!QS.JSONOutput) OS << "\nMatch #" << ++MatchCount << ":\n\n";
 
       for (auto BI = MI->getMap().begin(), BE = MI->getMap().end(); BI != BE;
            ++BI) {
-        if (QS.DiagOutput) {
+
+        if (QS.JSONOutput) {
+          J.objectBegin();
+          J.attribute("binding", BI->first);
+          clang::SourceRange R = BI->second.getSourceRange();
+          if (R.isValid()) {
+            FullSourceLoc loc(R.getBegin(), AST->getSourceManager());
+            J.attribute("location", loc.printToString(AST->getSourceManager()));
+          }
+        } else if (QS.DiagOutput) {
           clang::SourceRange R = BI->second.getSourceRange();
           if (R.isValid()) {
             TextDiagnostic TD(OS, AST->getASTContext().getLangOpts(),
@@ -138,27 +153,53 @@ bool MatchQuery::run(llvm::raw_ostream &OS, QuerySession &QS) const {
           }
         }
         if (QS.PrintOutput) {
-          OS << "Binding for \"" << BI->first << "\":\n";
-          BI->second.print(OS, AST->getASTContext().getPrintingPolicy());
-          OS << "\n";
+          if (QS.JSONOutput) {
+            std::string pretty;
+            llvm::raw_string_ostream OS_pretty(pretty);
+            BI->second.print(OS_pretty, AST->getASTContext().getPrintingPolicy());
+            OS_pretty.flush();
+            J.attribute("pretty", pretty);
+          } else {
+            OS << "Binding for \"" << BI->first << "\":\n";
+            BI->second.print(OS, AST->getASTContext().getPrintingPolicy());
+            OS << "\n";
+          }
         }
         if (QS.DetailedASTOutput) {
-          OS << "Binding for \"" << BI->first << "\":\n";
-          const ASTContext &Ctx = AST->getASTContext();
-          const SourceManager &SM = Ctx.getSourceManager();
-          ASTDumper Dumper(OS, &Ctx.getCommentCommandTraits(), &SM,
-                SM.getDiagnostics().getShowColors(), Ctx.getPrintingPolicy());
-          Dumper.Visit(BI->second);
-          OS << "\n";
+          if (QS.JSONOutput) {
+            J.flush();
+            OS_json << ",\n  \"ast\": ";
+            ASTContext &Ctx = AST->getASTContext();
+            const SourceManager &SM = Ctx.getSourceManager();
+            JSONDumper Dumper(OS_json, SM, Ctx, Ctx.getPrintingPolicy(),
+              &Ctx.getCommentCommandTraits());
+            Dumper.Visit(BI->second);
+          } else {
+            OS << "Binding for \"" << BI->first << "\":\n";
+            const ASTContext &Ctx = AST->getASTContext();
+            const SourceManager &SM = Ctx.getSourceManager();
+            ASTDumper Dumper(OS, &Ctx.getCommentCommandTraits(), &SM,
+                  SM.getDiagnostics().getShowColors(), Ctx.getPrintingPolicy());
+            Dumper.Visit(BI->second);
+            OS << "\n";
+          }
+        }
+        if (QS.JSONOutput) {
+          J.objectEnd();
         }
       }
 
-      if (MI->getMap().empty())
+      if (!QS.JSONOutput && MI->getMap().empty())
         OS << "No bindings.\n";
+    }
+    if (QS.JSONOutput) {
+      J.arrayEnd();
+      J.flush();
+      OS << S_json << "\n";
     }
   }
 
-  OS << MatchCount << (MatchCount == 1 ? " match.\n" : " matches.\n");
+  if (!QS.JSONOutput) OS << MatchCount << (MatchCount == 1 ? " match.\n" : " matches.\n");
   return true;
 }
 

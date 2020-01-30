@@ -18,7 +18,7 @@
 namespace clang {
 namespace query {
 
-enum OutputKind { OK_Diag, OK_Print, OK_DetailedAST };
+enum OutputKind { OK_Diag, OK_Print, OK_DetailedAST, OK_JSON, OK_Compact };
 
 enum QueryKind {
   QK_Invalid,
@@ -144,6 +144,7 @@ struct SetExclusiveOutputQuery : Query {
     QS.DiagOutput = false;
     QS.DetailedASTOutput = false;
     QS.PrintOutput = false;
+    QS.JSONOutput = false;
     QS.*Var = true;
     return true;
   }

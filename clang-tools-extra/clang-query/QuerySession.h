@@ -32,6 +32,7 @@ public:
   bool PrintOutput;
   bool DiagOutput;
   bool DetailedASTOutput;
+  bool JSONOutput;
 
   bool BindRoot;
   bool PrintMatcher;
